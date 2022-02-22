@@ -43,7 +43,7 @@ def numpy_to_var(x):
         torch_tensor = torch_tensor.cuda()
     return Variable(torch_tensor)
     
-def inference(network, moda_n, moda_g, imageNames, epoch, folder_save, number_modalities):
+def inference(network, moda_n, moda_g, imageNames, epoch, folder_save, number_modalities, seg_labels):
     '''root_dir = './Data/MRBrainS/DataNii/'
     model_dir = 'model'
 
@@ -52,8 +52,8 @@ def inference(network, moda_n, moda_g, imageNames, epoch, folder_save, number_mo
     moda_3 = root_dir + 'Training/T2_FLAIR'
     moda_g = root_dir + 'Training/GT'''
     network.eval()
-    softMax = nn.Softmax()
-    numClasses = 4
+    softMax = nn.Softmax(dim=1) # ziyao added dim
+    numClasses = len(seg_labels) # ziyao changed this hardcode
     if torch.cuda.is_available():
         softMax.cuda()
         network.cuda()
@@ -101,6 +101,23 @@ def inference(network, moda_n, moda_g, imageNames, epoch, folder_save, number_mo
 
         bin_seg = bin_seg[:,:,extraction_step_value:img_shape[3]-extraction_step_value]
         gt = nib.load(moda_g + '/' + imageNames[i_s]).get_data()
+        ###############################ziyao change gt content here#######################################
+        print("previous gt shape:" + str(gt.shape))
+        print("previous gt type="+str(type(gt)))
+        # generation_labels = np.array([0, 14, 15, 16, 24, 77, 85, 170, 172, 2, 3, 4, 5, 7, 8, 10, 11, 12, 13, 17, 18,
+        #                               21, 26, 28, 30, 31, 41, 42, 43, 44, 46, 47, 49, 50, 51, 52, 53, 54, 58, 60,
+        #                               61, 62, 63])
+
+        def transformg(lab):
+            segmentation_labels = np.array(seg_labels)
+            return np.where(segmentation_labels == lab)[0][0] if (lab in segmentation_labels) else 0
+
+        trans = np.vectorize(transformg)
+        gt = trans(gt)
+        print("converted gt labels" + str(np.unique(gt)))
+        print("after gt shape:" + str(gt.shape))
+        print("after gt type="+str(type(gt)))
+        ###############################ziyao change gt content here#######################################
 
         img_pred = nib.Nifti1Image(bin_seg, np.eye(4))
         img_gt = nib.Nifti1Image(gt, np.eye(4))
@@ -131,13 +148,14 @@ def runTraining(opts):
     print('~' * 50)
     print('  - Number of image modalities: {}'.format(opts.numModal))
     print('  - Number of classes: {}'.format(opts.numClasses))
+    print('  - Segmentation labels: {}'.format(str(opts.segmentation_labels))) # ziyao added
     print('  - Directory to load images: {}'.format(opts.root_dir))
     for i in range(len(opts.modality_dirs)):
         print('  - Modality {}: {}'.format(i+1,opts.modality_dirs[i]))
     print('  - Directory to save results: {}'.format(opts.save_dir))
     print('  - To model will be saved as : {}'.format(opts.modelName))
     print('-' * 41)
-    print('  - Number of epochs: {}'.format(opts.numClasses))
+    print('  - Number of epochs: {}'.format(opts.numEpochs)) # numEpochs, variable name changed by ziyao
     print('  - Batch size: {}'.format(opts.batchSize))
     print('  - Number of samples per epoch: {}'.format(opts.numSamplesEpoch))
     print('  - Learning rate: {}'.format(opts.l_rate))
@@ -214,7 +232,7 @@ def runTraining(opts):
         print("--------model not restored--------")
         pass'''
 
-    softMax = nn.Softmax()
+    softMax = nn.Softmax(dim=1) # dim added by ziyao
     CE_loss = nn.CrossEntropyLoss()
     
     if torch.cuda.is_available():
@@ -236,11 +254,33 @@ def runTraining(opts):
         if (opts.numModal == 2):
             imgPaths = [moda_1, moda_2]
 
+
         if (opts.numModal == 3):
             imgPaths = [moda_1, moda_2, moda_3]
 
         x_train, y_train, img_shape = load_data_trainG(imgPaths, moda_g, imageNames_train, samplesPerEpoch, opts.numModal) # hardcoded to read the first file. Loop this to get all files. Karthik
 
+        ######################################ziyao modified labels to np arange here##############################
+        print("previous y type="+str(type(y_train)))
+        print("previous y shape=" + str(y_train.shape))
+        # generation_labels = np.array([0, 14, 15, 16, 24, 77, 85, 170, 172, 2, 3, 4, 5, 7, 8, 10, 11, 12, 13, 17, 18,
+        #                               21, 26, 28, 30, 31, 41, 42, 43, 44, 46, 47, 49, 50, 51, 52, 53, 54, 58, 60,
+        #                               61, 62, 63])
+
+        def transform(lab):
+            segmentation_labels = np.array(opts.segmentation_labels)
+            return np.where(segmentation_labels == lab)[0][0] if (lab in segmentation_labels) else 0
+
+        trans = np.vectorize(transform)
+        y_train = trans(y_train)
+        print("converted segs " + str(np.unique(y_train)))
+        print("after y type=" + str(type(y_train)))
+        print("after y shape=" + str(y_train.shape))
+        ######################################ziyao modified labels to np arange here##############################
+
+
+        print(np.sum(x_train))
+        print("!!!!!!!!!!!!!!")
         for b_i in range(numBatches):
             optimizer.zero_grad()
             hdNet.zero_grad()
@@ -250,8 +290,12 @@ def runTraining(opts):
             Segmentation = numpy_to_var(y_train[b_i*batch_size:b_i*batch_size+batch_size,:,:,:])
 
             segmentation_prediction = hdNet(MRIs)
-            
+
+            print("shape of posterior??="+str(segmentation_prediction.shape))
+            print("number of classes="+str(num_classes))
             predClass_y = softMax(segmentation_prediction)
+            print("segmentation shape="+str(Segmentation.shape))
+            print(Segmentation)
 
             # To adapt CE to 3D
             # LOGITS:
@@ -289,7 +333,7 @@ def runTraining(opts):
             if (opts.numModal == 3):
                 moda_n = [moda_1_val, moda_2_val, moda_3_val]
 
-            dsc = inference(hdNet,moda_n, moda_g_val, imageNames_val,e_i, opts.save_dir,opts.numModal)
+            dsc = inference(hdNet,moda_n, moda_g_val, imageNames_val,e_i, opts.save_dir,opts.numModal, opts.segmentation_labels)
 
             dscAll.append(dsc)
 

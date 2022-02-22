@@ -73,7 +73,7 @@ def build_set(imageData, numModalities) :
     y_length = len(y)
 
     label_patches = extract_patches(imageData_g, patch_shape, extraction_step)
-    label_patches = label_patches[label_selector]
+    label_patches = label_patches[tuple(label_selector)]
     
     # Select only those who are important for processing
     valid_idxs = np.where(np.sum(label_patches, axis=(1, 2, 3)) != 0)
@@ -148,6 +148,7 @@ def load_data_trainG(paths, pathg, imageNames, numSamples, numModalities):
     for num in range(len(imageNames)):
         imageData_1 = nib.load(paths[0] + '/' + imageNames[num]).get_data()
         imageData_2 = nib.load(paths[1] + '/' + imageNames[num]).get_data()
+
         if (numModalities==3):
             imageData_3 = nib.load(paths[2] + '/' + imageNames[num]).get_data()
         imageData_g = nib.load(pathg + '/' + imageNames[num]).get_data()
@@ -165,8 +166,17 @@ def load_data_trainG(paths, pathg, imageNames, numSamples, numModalities):
         idx = np.arange(x_train.shape[0])
         np.random.shuffle(idx)
 
+        print(x_train.shape)
+        # print(np.sum(x_train))
+        # print("before smallx correct???")
+        # print("samplesperimage="+str(samplesPerImage))
+
         x_train = x_train[idx[:samplesPerImage],]
         y_train = y_train[idx[:samplesPerImage],]
+
+        # print(x_train.shape)
+        # print(np.sum(x_train))
+        # print("after smallx correct???")
 
         X_train.append(x_train)
         Y_train.append(y_train)
@@ -176,6 +186,10 @@ def load_data_trainG(paths, pathg, imageNames, numSamples, numModalities):
 
     X_train = np.asarray(X_train)
     Y_train = np.asarray(Y_train)
+
+    print(X_train.shape)
+    print(np.sum(X_train))
+    print("capitalX correct???")
 
     X = np.concatenate(X_train, axis=0)
     del X_train
