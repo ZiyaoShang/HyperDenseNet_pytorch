@@ -52,8 +52,24 @@ import numpy as np
 # arr1 = np.load("/home/ziyaos/ziyao_data/new_infant_data_2021/bootstraping/final/final_new_masking/merging_priors/T2/young/priors/prior_means.npy")
 # print(arr1)
 # print(arr1.shape)
-# arr1 = np.load("/home/ziyaos/ziyao_data/new_infant_data_2021/bootstraping/final/final_new_masking/merging_priors/T1/young/priors/prior_means.npy")
-# print(arr1)
+
+import matplotlib.pyplot as plt
+arr1 = np.load(r"C:\Users\zs\PycharmProjects\HyperDenseNet_pytorch\batchlosses.npy")
+arr1 = np.log(arr1)
+print(np.max(arr1))
+epo = []
+ind = 0
+tot = 0
+for i in arr1:
+    tot += i
+    ind += 1
+    if ind == 50*75:
+        epo.append(tot/50/75)
+        tot = 0
+        ind = 0
+plt.plot(arr1)
+plt.show()
+
 # print(arr1.shape)
 # print(np.random.randint(1))
 # print(np.array([1,2,3,4,5,6])[2:200])
@@ -149,13 +165,14 @@ import numpy as np
 # arr = np.array([0,1,2,3])
 # print(np.where(arr==i)[0][0])
 
-def transformg(lab):
-    segmentation_labels = np.array([0, 14, 15, 16, 170, 172, 2, 3, 4, 7, 8, 10, 11, 12, 13, 17, 18, 21, 26, 28, 41, 42,
-                                    43, 46, 47, 49, 50, 51, 52, 53, 54, 58, 60, 61])
-    return np.where(segmentation_labels == lab)[0][0] if (lab in segmentation_labels) else 0
-
-
-trans = np.vectorize(transformg)
-gt = np.arange(100)
-gt = trans(gt)
-print("converted gt labels" + str(np.unique(gt)))
+# def transformg(lab):
+#     segmentation_labels = np.array([0, 14, 15, 16, 170, 172, 2, 3, 4, 7, 8, 10, 11, 12, 13, 17, 18, 21, 26, 28, 41, 42,
+#                                     43, 46, 47, 49, 50, 51, 52, 53, 54, 58, 60, 61])
+#     return np.where(segmentation_labels == lab)[0][0] if (lab in segmentation_labels) else 0
+#
+#
+# trans = np.vectorize(transformg)
+# gt = np.arange(100)
+# gt = trans(gt)
+# print("converted gt labels" + str(np.unique(gt)))
+# print(100+40%20)

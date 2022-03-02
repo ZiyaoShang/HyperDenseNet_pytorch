@@ -21,19 +21,26 @@ from torch.autograd import Variable
 from progressBar import printProgressBar
 import nibabel as nib
 
-def evaluateSegmentation(gt,pred):
+def evaluateSegmentation(gt,pred, eval_labels): # almost completely rewritten by ziyao
     pred = pred.astype(dtype='int')
-    numClasses = np.unique(gt)
+    # numClasses = np.unique(gt)
+    numClasses = len(eval_labels) # ziyao
+    print("unique classes are: " + str(numClasses))
 
-    dsc = np.zeros((1, len(numClasses) - 1))
+    dsc = np.zeros((1, numClasses - 1))
 
-    for i_n in range(1,len(numClasses)):
+    # for i_n in range(1,len(numClasses)):
+
+    ind = 1
+    for i_n in eval_labels[1:]:  # ziyao
         gt_c = np.zeros(gt.shape)
         y_c = np.zeros(gt.shape)
         gt_c[np.where(gt==i_n)]=1
         y_c[np.where(pred==i_n)]=1
 
-        dsc[0, i_n - 1] = dc(gt_c, y_c)
+        dsc[0, ind - 1] = dc(gt_c, y_c)
+        ind += 1
+
     return dsc
     
 def numpy_to_var(x):
@@ -43,7 +50,7 @@ def numpy_to_var(x):
         torch_tensor = torch_tensor.cuda()
     return Variable(torch_tensor)
     
-def inference(network, moda_n, moda_g, imageNames, epoch, folder_save, number_modalities, seg_labels):
+def inference(network, moda_n, moda_g, imageNames, epoch, folder_save, number_modalities, seg_labels, toMerge, eval_labels):
     '''root_dir = './Data/MRBrainS/DataNii/'
     model_dir = 'model'
 
@@ -52,14 +59,22 @@ def inference(network, moda_n, moda_g, imageNames, epoch, folder_save, number_mo
     moda_3 = root_dir + 'Training/T2_FLAIR'
     moda_g = root_dir + 'Training/GT'''
     network.eval()
-    softMax = nn.Softmax(dim=1) # ziyao added dim
+    softMax = nn.Softmax(dim=2) # ziyao added dim
     numClasses = len(seg_labels) # ziyao changed this hardcode
     if torch.cuda.is_available():
         softMax.cuda()
         network.cuda()
 
-    dscAll = np.zeros((len(imageNames), numClasses - 1))  # 1 class is the background!!
+    def getInd(lab):  # created by ziyao
+        return np.where(np.array(seg_labels) == lab)[0][0] if (lab in np.array(seg_labels)) else 0
+
+    cvt = np.vectorize(getInd)
+    eval_labels = cvt(eval_labels) # convert the evaluation labels into ind(segmentation_labels)
+    print("the converted eval labels are: " + str(eval_labels))
+
+    dscAll = np.zeros((len(imageNames), len(eval_labels) - 1))  # 1st class is the background!! ziyao
     for i_s in range(len(imageNames)):
+
         if number_modalities == 2:
             patch_1, patch_2, patch_g, img_shape = load_data_test(moda_n, moda_g, imageNames[i_s], number_modalities)  # hardcoded to read the first file. Loop this to get all files
         if number_modalities == 3:
@@ -83,7 +98,6 @@ def inference(network, moda_n, moda_g, imageNames, epoch, folder_save, number_mo
             pred = network(numpy_to_var(x[i_p,:,:,:,:].reshape(1,number_modalities,patchSize,patchSize,patchSize)))
             pred_y = softMax(pred)
             pred_numpy[i_p,:,:,:,:] = pred_y.cpu().data.numpy()
-
             printProgressBar(i_s * ((totalOp + 0.0) / len(imageNames)) + i_p + 1, totalOp,
                              prefix="[Validation] ",
                              length=15)
@@ -98,25 +112,35 @@ def inference(network, moda_n, moda_g, imageNames, epoch, folder_save, number_mo
                                         (img_shape[1], img_shape[2], img_shape[3]),
                                         patch_shape=(27, 27, 27),
                                         extraction_step=(extraction_step_value, extraction_step_value, extraction_step_value))
-
+        # bin_seg is the segmentation
         bin_seg = bin_seg[:,:,extraction_step_value:img_shape[3]-extraction_step_value]
+
+        ###############################ziyao change segmentation content here#######################################
+        # tuples = np.array([(21,2), (61,41), (170,16)])
+
+        for tuple in toMerge:  # merge labels
+            bin_seg[bin_seg == getInd(tuple[0])] = getInd(tuple[1])
+
+
+        ###############################ziyao change segmentation content here#######################################
+
+        # load GT
         gt = nib.load(moda_g + '/' + imageNames[i_s]).get_data()
         ###############################ziyao change gt content here#######################################
-        print("previous gt shape:" + str(gt.shape))
-        print("previous gt type="+str(type(gt)))
+        # print("previous gt shape:" + str(gt.shape))
+        # print("previous gt type="+str(type(gt)))
         # generation_labels = np.array([0, 14, 15, 16, 24, 77, 85, 170, 172, 2, 3, 4, 5, 7, 8, 10, 11, 12, 13, 17, 18,
         #                               21, 26, 28, 30, 31, 41, 42, 43, 44, 46, 47, 49, 50, 51, 52, 53, 54, 58, 60,
         #                               61, 62, 63])
 
-        def transformg(lab):
-            segmentation_labels = np.array(seg_labels)
-            return np.where(segmentation_labels == lab)[0][0] if (lab in segmentation_labels) else 0
-
-        trans = np.vectorize(transformg)
-        gt = trans(gt)
+        # def transformg(lab):
+        #     return getInd(lab)
+        #
+        # trans = np.vectorize(transformg)
+        gt = cvt(gt)
         print("converted gt labels" + str(np.unique(gt)))
-        print("after gt shape:" + str(gt.shape))
-        print("after gt type="+str(type(gt)))
+        # print("after gt shape:" + str(gt.shape))
+        # print("after gt type="+str(type(gt)))
         ###############################ziyao change gt content here#######################################
 
         img_pred = nib.Nifti1Image(bin_seg, np.eye(4))
@@ -136,8 +160,10 @@ def inference(network, moda_n, moda_g, imageNames, epoch, folder_save, number_mo
         nib.save(img_pred, folder_save + 'Segmentations/' + name)
         nib.save(img_gt, folder_save + 'GT/' + namegt)
 
-        dsc = evaluateSegmentation(gt,bin_seg)
-        dscAll[i_s, :] = dsc
+        dsc = evaluateSegmentation(gt, bin_seg, eval_labels)
+        print("The dice scores are: " + str(dsc))
+        dscAll[i_s, :] = dsc # problem here is that len(segmentation labels) > unique(GT_after_resetting) due to
+        # 1mo GTs not having cerebellum seperations
 
     return dscAll
         
@@ -149,6 +175,8 @@ def runTraining(opts):
     print('  - Number of image modalities: {}'.format(opts.numModal))
     print('  - Number of classes: {}'.format(opts.numClasses))
     print('  - Segmentation labels: {}'.format(str(opts.segmentation_labels))) # ziyao added
+    print('  - Merge tuples: {}'.format(str(opts.merge_tuples))) # ziyao added
+    print('  - Evaluation labels: {}'.format(str(opts.eval_labels))) # ziyao added
     print('  - Directory to load images: {}'.format(opts.root_dir))
     for i in range(len(opts.modality_dirs)):
         print('  - Modality {}: {}'.format(i+1,opts.modality_dirs[i]))
@@ -232,7 +260,7 @@ def runTraining(opts):
         print("--------model not restored--------")
         pass'''
 
-    softMax = nn.Softmax(dim=1) # dim added by ziyao
+    softMax = nn.Softmax(dim=2) # dim added by ziyao
     CE_loss = nn.CrossEntropyLoss()
     
     if torch.cuda.is_available():
@@ -246,6 +274,7 @@ def runTraining(opts):
     print(" ~~~~~~~~~~~ Starting the training ~~~~~~~~~~")
     numBatches = int(samplesPerEpoch/batch_size)
     dscAll = []
+    saveLoss = []
     for e_i in range(epoch):
         hdNet.train()
         
@@ -276,6 +305,18 @@ def runTraining(opts):
         print("converted segs " + str(np.unique(y_train)))
         print("after y type=" + str(type(y_train)))
         print("after y shape=" + str(y_train.shape))
+
+        # TODO: the segmentations have the following problems:
+        #  (1) Segmentation classes must be from 0-numClasses (solved by converting to the index on segmentation_labels,
+        #  which is added as a param for merge_train)
+        #  (2) The segmentations contains labels that should be merged. This could be converted before evaluating
+        #  (partially solved).
+        #  (3) Some labels present in the GT are not in segmentation_labels (solved by resetting them to background 0)
+        #  (4) The evaluation assumes that len(segmentation labels)==uniaue(GT_after_resetting), which is often not the case.
+        #  A possible solution is to evaluate only the labels present in both the GT and segmentation_labels
+        #  regardless of whether it is present in the actual segmentations. (are there exceptions?)
+        #  A better solution may be to create an evaluation_labels param.
+        #
         ######################################ziyao modified labels to np arange here##############################
 
 
@@ -291,11 +332,15 @@ def runTraining(opts):
 
             segmentation_prediction = hdNet(MRIs)
 
-            print("shape of posterior??="+str(segmentation_prediction.shape))
-            print("number of classes="+str(num_classes))
+            # print("shape of posterior??="+str(segmentation_prediction.shape))
+            # print("number of classes="+str(num_classes))
+            # print("the previous prediction is: " + str(segmentation_prediction[0, 15, 6:8, 6:8, 6:8]))
+            # print("the sum is: " + str(np.sum(segmentation_prediction.cpu().data.numpy())))
             predClass_y = softMax(segmentation_prediction)
-            print("segmentation shape="+str(Segmentation.shape))
-            print(Segmentation)
+            # print("the after prediction is: " + str(segmentation_prediction[0, 15, 6:8, 6:8, 6:8]))
+            # print("the sum is: " + str(np.sum(segmentation_prediction.cpu().data.numpy())))
+            # print("segmentation shape="+str(Segmentation.shape))
+            # print(Segmentation)
 
             # To adapt CE to 3D
             # LOGITS:
@@ -304,11 +349,15 @@ def runTraining(opts):
             
             CE_loss_batch = CE_loss(segmentation_prediction, Segmentation.view(-1).type(torch.cuda.LongTensor))
             
-            loss = CE_loss_batch
+            loss = CE_loss_batch # TODO: log this (maybe) and visualize
             loss.backward()
             
             optimizer.step()
             lossEpoch.append(CE_loss_batch.cpu().data.numpy())
+
+            # print("the batch loss is: ")
+            # print(CE_loss_batch.cpu().data.numpy())
+            saveLoss.append(CE_loss_batch.cpu().data.numpy())
 
             printProgressBar(b_i + 1, numBatches,
                              prefix="[Training] Epoch: {} ".format(e_i),
@@ -333,7 +382,7 @@ def runTraining(opts):
             if (opts.numModal == 3):
                 moda_n = [moda_1_val, moda_2_val, moda_3_val]
 
-            dsc = inference(hdNet,moda_n, moda_g_val, imageNames_val,e_i, opts.save_dir,opts.numModal, opts.segmentation_labels)
+            dsc = inference(hdNet,moda_n, moda_g_val, imageNames_val,e_i, opts.save_dir,opts.numModal, opts.segmentation_labels, opts.merge_tuples, opts.eval_labels)
 
             dscAll.append(dsc)
 
@@ -350,11 +399,16 @@ def runTraining(opts):
                 
             torch.save(hdNet, os.path.join(model_name, "Best2_" + model_name + ".pkl"))
 
-        if (100+e_i%20)==0:
-             lr = lr/2
-             print(' Learning rate decreased to : {}'.format(lr))
-             for param_group in optimizer.param_groups:
+        np.save(file='/home/ziyaos/SSG_HDN/HyperDenseNet_pytorch/batchlosses.npy',
+                arr=saveLoss)  # save the loss for each batch
+
+        # if (100+e_i%20)==0: TODO: what does this mean? This will never be triggered. Changed to the code below
+        if (e_i % 20 == 0) and (e_i != 0):
+            lr = lr/2
+            print(' Learning rate decreased to : {}'.format(lr))
+            for param_group in optimizer.param_groups:
                 param_group['lr'] = lr
+
                         
             
 if __name__ == '__main__':

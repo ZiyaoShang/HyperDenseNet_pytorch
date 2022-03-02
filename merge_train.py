@@ -11,13 +11,13 @@ import mainHyperDenseNet as hdn
 # TODO: remember to add validation datasets
 
 # number of images to generate
-num_image = 100
+num_image = 75
 # path of the input label map
 labels_dir = "/home/ziyaos/SSG_HDN/training_labels"
 # path where to save the generated image
-result_label = "/home/ziyaos/SSG_HDN/Training/GT"
-result_T1 = "/home/ziyaos/SSG_HDN/Training/T1s"
-result_T2 = "/home/ziyaos/SSG_HDN/Training/T2s"
+result_label = "/home/ziyaos/SSG_HDN/root/Training/GT"
+result_T1 = "/home/ziyaos/SSG_HDN/root/Training/T1s"
+result_T2 = "/home/ziyaos/SSG_HDN/root/Training/T2s"
 
 T1_means = "/home/ziyaos/SSG_HDN/T1merged/prior_means.npy"
 T1_stds = "/home/ziyaos/SSG_HDN/T1merged/prior_stds.npy"
@@ -31,9 +31,9 @@ generation_labels = np.array([0, 14, 15, 16, 24, 77, 85, 170, 172, 2,  3,   4,  
 generation_classes = np.array([0, 1, 2, 3, 4, 5, 6, 3, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 9, 22,
                                     23, 24, 25, 9, 27, 28, 29, 13, 31, 32, 33, 34, 35, 36, 37, 38, 39, 9, 41, 42])
 
-segmentation_labels = [0, 14, 15, 16, 170, 2, 3, 4, 7, 8, 10, 11, 12, 13, 17, 18, 21, 26, 28, 41, 42, 43, 46,
+segmentation_labels = [0, 14, 15, 16, 170, 172, 2, 3, 4, 7, 8, 10, 11, 12, 13, 17, 18, 21, 26, 28, 41, 42, 43, 46,
                             47, 49, 50, 51, 52, 53, 54, 58, 60, 61]
-# ziyao removed label 172 temporarily
+
 
 flipping = False  # whether to right/left flip the training label maps, this will take sided labels into account
 # (so that left labels are indeed on the left when the label map is flipped)
@@ -127,7 +127,7 @@ blur_range = 1.03  # we activate this parameter, which enables SynthSeg to be ro
 #     print("Saved Output.")
 #
 # print("Generation finished, generated " + str(num_image) + " brains")
-
+print("Now starting training...")
 parser = ArgumentParser()
 
 parser.add_argument('--save_dir', type=str, default='./Results/', help='directory ot save results')
@@ -150,12 +150,16 @@ opts.root_dir = "/home/ziyaos/SSG_HDN/root/"
 opts.modality_dirs = ["T1s", "T2s"]
 opts.numModal = 2
 opts.numClasses = len(segmentation_labels)
-opts.numSamplesEpoch = 100*5
-opts.numEpochs = 50
+opts.numSamplesEpoch = 75*50
+opts.numEpochs = 40
 opts.batchSize = 1
-opts.l_rate = 0.0002
+opts.l_rate = 0.002 # TODO: already 10* larger
 opts.save_dir = '/home/ziyaos/SSG_HDN/res/'
 opts.segmentation_labels = segmentation_labels
+opts.merge_tuples = np.array([(21,2), (61,41), (170,16)])
+opts.eval_labels = [0, 14, 15, 16, 172, 2, 3, 4, 7, 8, 10, 11, 12, 13, 17, 18, 26, 28, 41, 42, 43, 46, 47, 49, 50, 51, 52, 53, 54, 58, 60]
+# the evaluation labels must be a subset of the segmentation labels
 print(opts)
-
+# TODO: log the cross-entropy loss using tensorboard pytorch (just for visualization)
+#
 hdn.runTraining(opts)
