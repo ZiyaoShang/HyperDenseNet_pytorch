@@ -1,7 +1,4 @@
 
-
-
-
 from os.path import isfile, join
 import os
 import numpy as np
@@ -9,6 +6,8 @@ from sampling import reconstruct_volume
 from sampling import my_reconstruct_volume
 from sampling import load_data_trainG
 from sampling import load_data_test
+
+from utils import generate_temp
 
 import torch
 import torch.nn as nn
@@ -20,6 +19,9 @@ import pdb
 from torch.autograd import Variable
 from progressBar import printProgressBar
 import nibabel as nib
+
+import multiprocessing
+
 
 def evaluateSegmentation(gt,pred, eval_labels): # almost completely rewritten by ziyao
     pred = pred.astype(dtype='int')
@@ -59,7 +61,7 @@ def inference(network, moda_n, moda_g, imageNames, epoch, folder_save, number_mo
     moda_3 = root_dir + 'Training/T2_FLAIR'
     moda_g = root_dir + 'Training/GT'''
     network.eval()
-    softMax = nn.Softmax(dim=2) # ziyao added dim
+    softMax = nn.Softmax(dim=1) # ziyao added dim
     numClasses = len(seg_labels) # ziyao changed this hardcode
     if torch.cuda.is_available():
         softMax.cuda()
@@ -260,7 +262,7 @@ def runTraining(opts):
         print("--------model not restored--------")
         pass'''
 
-    softMax = nn.Softmax(dim=2) # dim added by ziyao
+    softMax = nn.Softmax(dim=1) # dim added by ziyao
     CE_loss = nn.CrossEntropyLoss()
     
     if torch.cuda.is_available():
@@ -276,6 +278,13 @@ def runTraining(opts):
     dscAll = []
     saveLoss = []
     for e_i in range(epoch):
+        # generate images
+
+        p = multiprocessing.Process(target=generate_temp(75))
+        p.start()
+        p.join()
+        p.terminate()
+
         hdNet.train()
         
         lossEpoch = []
@@ -355,7 +364,7 @@ def runTraining(opts):
             optimizer.step()
             lossEpoch.append(CE_loss_batch.cpu().data.numpy())
 
-            # print("the batch loss is: ")
+            # print("!!!!!!!!!!!the batch loss is: ")
             # print(CE_loss_batch.cpu().data.numpy())
             saveLoss.append(CE_loss_batch.cpu().data.numpy())
 
@@ -399,10 +408,10 @@ def runTraining(opts):
                 
             torch.save(hdNet, os.path.join(model_name, "Best2_" + model_name + ".pkl"))
 
-        np.save(file='/home/ziyaos/SSG_HDN/HyperDenseNet_pytorch/batchlosses.npy',
+        np.save(file='/home/ziyaos/SSG_HDN/dup/HyperDenseNet_pytorch/batchlosses_10x_refresh.npy',
                 arr=saveLoss)  # save the loss for each batch
 
-        # if (100+e_i%20)==0: TODO: what does this mean? This will never be triggered. Changed to the code below
+        # if (100+e_i%20)==0: # what does this mean? This will never be triggered. Changed to the code below
         if (e_i % 20 == 0) and (e_i != 0):
             lr = lr/2
             print(' Learning rate decreased to : {}'.format(lr))

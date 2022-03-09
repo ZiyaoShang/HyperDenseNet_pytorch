@@ -54,9 +54,9 @@ import numpy as np
 # print(arr1.shape)
 
 import matplotlib.pyplot as plt
-arr1 = np.load(r"C:\Users\zs\PycharmProjects\HyperDenseNet_pytorch\batchlosses.npy")
+arr1 = np.load(r"C:\Users\zs\PycharmProjects\HyperDenseNet_pytorch\batchlosses_ori.npy")
 arr1 = np.log(arr1)
-print(np.max(arr1))
+print(len(arr1))
 epo = []
 ind = 0
 tot = 0
@@ -67,9 +67,10 @@ for i in arr1:
         epo.append(tot/50/75)
         tot = 0
         ind = 0
-plt.plot(arr1)
+plt.plot(epo)
+plt.title("logged cross-entropy loss (epoch average): original learning rate")
+plt.savefig(r"C:\Users\zs\PycharmProjects\HyperDenseNet_pytorch\original_epoch.jpg")
 plt.show()
-
 # print(arr1.shape)
 # print(np.random.randint(1))
 # print(np.array([1,2,3,4,5,6])[2:200])
