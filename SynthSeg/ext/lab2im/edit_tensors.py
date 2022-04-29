@@ -128,8 +128,8 @@ def blur_channel(tensor, mask, kernels_list, n_dims, blur_background=True):
 
     if blur_background:  # background already blurred with the rest of the image
 
-        # enforce zero background in 20% of the cases
-        rand = KL.Lambda(lambda x: K.greater(tf.random.uniform((1, 1), 0, 1), 0.8))([])
+        # enforce zero background in 20%>100% of the cases
+        rand = KL.Lambda(lambda x: K.greater(tf.random.uniform((1, 1), 0, 1), 0))([]) ### ZS edit!!!
         tensor = KL.Lambda(lambda y: K.switch(tf.squeeze(y[0]),
                                               KL.Lambda(lambda x: tf.where(tf.cast(x[1], dtype='bool'),
                                                                            x[0], tf.zeros_like(x[0])))([y[1], y[2]]),

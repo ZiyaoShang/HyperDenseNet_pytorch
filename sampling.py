@@ -151,7 +151,7 @@ def load_data_trainG(paths, pathg, imageNames, numSamples, numModalities):
 
         if (numModalities==3):
             imageData_3 = nib.load(paths[2] + '/' + imageNames[num]).get_data()
-        imageData_g = nib.load(pathg + '/' + imageNames[num]).get_data()
+        imageData_g = nib.load(pathg + '/' + imageNames[num] + '.gz').get_data()  # zs added .gz
 
         num_classes = len(np.unique(imageData_g))
 

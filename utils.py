@@ -169,22 +169,22 @@ def load_data_test(path1, path2, path3, pathg, imgName):
 	return patch_1, patch_2, patch_3, patch_g, img_shape
 
 
-def generate_temp(num):
+def generate_temp(num, merge_labels=None):
     # number of images to generate
     num_image = num
     # path of the input label map
     labels_dir = "/home/ziyaos/SSG_HDN/training_labels"
     # path where to save the generated image
-    result_label = "/home/ziyaos/SSG_HDN/dup/root/Training/GT"
-    result_T1 = "/home/ziyaos/SSG_HDN/dup/root/Training/T1s"
-    result_T2 = "/home/ziyaos/SSG_HDN/dup/root/Training/T2s"
+    result_label = "/home/ziyaos/SSG_HDN/root/Training/GT"
+    result_T1 = "/home/ziyaos/SSG_HDN/root/Training/T1s"
+    result_T2 = "/home/ziyaos/SSG_HDN/root/Training/T2s"
 
     T1_means = "/home/ziyaos/SSG_HDN/T1merged/prior_means.npy"
     T1_stds = "/home/ziyaos/SSG_HDN/T1merged/prior_stds.npy"
 
     T2_means = "/home/ziyaos/SSG_HDN/T2merged/prior_means.npy"
     T2_stds = "/home/ziyaos/SSG_HDN/T2merged/prior_stds.npy"
-
+    #
     generation_labels = np.array([0, 14, 15, 16, 24, 77, 85, 170, 172, 2,  3,   4,   5,   7,   8,  10,  11,  12,  13, 17, 18,
                               21,  26,  28,  30,  31,  41,  42,  43,  44,  46,  47,  49,  50,  51,  52,  53,  54,  58,  60,
                               61,  62,  63])
@@ -220,8 +220,8 @@ def generate_temp(num):
 
     # no randomness when selecting the templetes for generation
 
-    T1_generator = brain_generator.BrainGenerator(labels_dir, generation_labels=generation_labels, prior_means=T1_means,
-                                  prior_stds=T1_stds, flipping=flipping, generation_classes=generation_classes,
+    T1_generator = brain_generator.BrainGenerator(labels_dir, generation_labels=generation_labels, prior_means=None,
+                                  prior_stds=None, flipping=flipping, generation_classes=generation_classes,
                                   scaling_bounds=scaling_bounds,
                                   rotation_bounds=rotation_bounds,
                                   shearing_bounds=shearing_bounds,
@@ -234,7 +234,7 @@ def generate_temp(num):
                                   bias_field_std=bias_field_std,
                                   bias_shape_factor=bias_shape_factor,
                                   mix_prior_and_random=True,
-                                  prior_distributions='normal',
+                                  prior_distributions='uniform',
                                   use_generation_classes=0.5)
 
 
@@ -248,15 +248,15 @@ def generate_temp(num):
         utils.save_volume(np.squeeze(im), T1_generator.aff, T1_generator.header,
                           os.path.join(result_T1, 'brain_%s.nii' % i))
         utils.save_volume(np.squeeze(lab), T1_generator.aff, T1_generator.header,
-                          os.path.join(result_label, 'brain_%s.nii' % i))
+                          os.path.join(result_label, 'brain_%s.nii.gz' % i))
 
         print("Saved Output.")
     del T1_generator
 
     print("step two")
     # sequential selection
-    T2_generator = brain_generator.BrainGenerator(result_label, generation_labels=generation_labels, prior_means=T2_means,
-                                  prior_stds=T2_stds, generation_classes=generation_classes,
+    T2_generator = brain_generator.BrainGenerator(result_label, generation_labels=generation_labels, prior_means=None,
+                                  prior_stds=None, generation_classes=generation_classes,
                                   data_res=data_res,
                                   thickness=thickness,
                                   downsample=downsample,
@@ -264,7 +264,7 @@ def generate_temp(num):
                                   bias_field_std=bias_field_std,
                                   bias_shape_factor=bias_shape_factor,
                                   mix_prior_and_random=True,
-                                  prior_distributions='normal',
+                                  prior_distributions='uniform',
                                   use_generation_classes=0.5,
                                   flipping=False,
                                   apply_linear_trans=False,
@@ -289,3 +289,22 @@ def generate_temp(num):
     del T2_generator
 
     print("Generation finished, generated " + str(num_image) + " brains")
+
+    # convert into large labels
+    if merge_labels is not None:
+        print("converting into " + str(len(merge_labels)) + " labels ")
+        label_names = utils.list_images_in_folder(result_label)
+        print(label_names)
+        for lbmap in label_names:
+            print(str(lbmap))
+            volume, aff, header = utils.load_volume(path_volume=lbmap, im_only=False)
+            for set in merge_labels:
+                print(str(set))
+                cvtTo = set[1]
+                cvtArr = set[0]
+                for label in cvtArr:
+                    volume[volume == label] = cvtTo
+            assert np.array_equal(np.unique(volume), np.arange(len(merge_labels))), str(np.unique(volume))
+            print("saving...")
+            utils.save_volume(np.squeeze(volume), aff, header, lbmap)
+        print("convert finished")

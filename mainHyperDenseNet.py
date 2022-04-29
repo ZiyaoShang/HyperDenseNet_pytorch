@@ -21,6 +21,8 @@ from progressBar import printProgressBar
 import nibabel as nib
 
 import multiprocessing
+from torch.utils.tensorboard import SummaryWriter
+
 
 
 def evaluateSegmentation(gt,pred, eval_labels): # almost completely rewritten by ziyao
@@ -61,18 +63,18 @@ def inference(network, moda_n, moda_g, imageNames, epoch, folder_save, number_mo
     moda_3 = root_dir + 'Training/T2_FLAIR'
     moda_g = root_dir + 'Training/GT'''
     network.eval()
-    softMax = nn.Softmax(dim=1) # ziyao added dim
+    softMax = nn.Softmax() # ziyao added dim
     numClasses = len(seg_labels) # ziyao changed this hardcode
     if torch.cuda.is_available():
         softMax.cuda()
         network.cuda()
 
-    def getInd(lab):  # created by ziyao
-        return np.where(np.array(seg_labels) == lab)[0][0] if (lab in np.array(seg_labels)) else 0
-
-    cvt = np.vectorize(getInd)
-    eval_labels = cvt(eval_labels) # convert the evaluation labels into ind(segmentation_labels)
-    print("the converted eval labels are: " + str(eval_labels))
+    # def getInd(lab):  # created by ziyao
+    #     return np.where(np.array(seg_labels) == lab)[0][0] if (lab in np.array(seg_labels)) else 0
+    #
+    # cvt = np.vectorize(getInd)
+    # eval_labels = cvt(eval_labels) # convert the evaluation labels into ind(segmentation_labels)
+    # print("the converted eval labels are: " + str(eval_labels))
 
     dscAll = np.zeros((len(imageNames), len(eval_labels) - 1))  # 1st class is the background!! ziyao
     for i_s in range(len(imageNames)):
@@ -120,8 +122,8 @@ def inference(network, moda_n, moda_g, imageNames, epoch, folder_save, number_mo
         ###############################ziyao change segmentation content here#######################################
         # tuples = np.array([(21,2), (61,41), (170,16)])
 
-        for tuple in toMerge:  # merge labels
-            bin_seg[bin_seg == getInd(tuple[0])] = getInd(tuple[1])
+        # for tuple in toMerge:  # merge labels
+        #     bin_seg[bin_seg == getInd(tuple[0])] = getInd(tuple[1])
 
 
         ###############################ziyao change segmentation content here#######################################
@@ -139,7 +141,12 @@ def inference(network, moda_n, moda_g, imageNames, epoch, folder_save, number_mo
         #     return getInd(lab)
         #
         # trans = np.vectorize(transformg)
-        gt = cvt(gt)
+        # gt = cvt(gt)
+        for set in toMerge:
+            cvtTo = set[1]
+            cvtArr = set[0]
+            for label in cvtArr:
+                gt[gt == label] = cvtTo
         print("converted gt labels" + str(np.unique(gt)))
         # print("after gt shape:" + str(gt.shape))
         # print("after gt type="+str(type(gt)))
@@ -179,6 +186,7 @@ def runTraining(opts):
     print('  - Segmentation labels: {}'.format(str(opts.segmentation_labels))) # ziyao added
     print('  - Merge tuples: {}'.format(str(opts.merge_tuples))) # ziyao added
     print('  - Evaluation labels: {}'.format(str(opts.eval_labels))) # ziyao added
+    print('  - Merge labels: {}'.format(str(opts.merge_labels)))
     print('  - Directory to load images: {}'.format(opts.root_dir))
     for i in range(len(opts.modality_dirs)):
         print('  - Modality {}: {}'.format(i+1,opts.modality_dirs[i]))
@@ -195,6 +203,8 @@ def runTraining(opts):
     print('~~~~~~~~  Starting the training... ~~~~~~')
     print('-' * 41)
     print('' * 40)
+
+    writer = SummaryWriter("runs/boardalt")
 
     samplesPerEpoch = opts.numSamplesEpoch
     batch_size = opts.batchSize
@@ -262,7 +272,7 @@ def runTraining(opts):
         print("--------model not restored--------")
         pass'''
 
-    softMax = nn.Softmax(dim=1) # dim added by ziyao
+    softMax = nn.Softmax() # dim added by ziyao
     CE_loss = nn.CrossEntropyLoss()
     
     if torch.cuda.is_available():
@@ -272,18 +282,21 @@ def runTraining(opts):
 
     # To-DO: Check that optimizer is the same (and same values) as the Theano implementation
     optimizer = torch.optim.Adam(hdNet.parameters(), lr=lr, betas=(0.9, 0.999))
-    
+
     print(" ~~~~~~~~~~~ Starting the training ~~~~~~~~~~")
     numBatches = int(samplesPerEpoch/batch_size)
     dscAll = []
     saveLoss = []
+    addgraph = True
+
     for e_i in range(epoch):
         # generate images
 
-        p = multiprocessing.Process(target=generate_temp(75))
-        p.start()
-        p.join()
-        p.terminate()
+        # p = multiprocessing.Process(target=generate_temp(2, merge_labels=opts.merge_labels))
+        # p.start()
+        # p.join()
+        # p.terminate()
+        generate_temp(opts.generate_num, merge_labels=opts.merge_labels)
 
         hdNet.train()
         
@@ -299,38 +312,53 @@ def runTraining(opts):
         x_train, y_train, img_shape = load_data_trainG(imgPaths, moda_g, imageNames_train, samplesPerEpoch, opts.numModal) # hardcoded to read the first file. Loop this to get all files. Karthik
 
         ######################################ziyao modified labels to np arange here##############################
-        print("previous y type="+str(type(y_train)))
-        print("previous y shape=" + str(y_train.shape))
-        # generation_labels = np.array([0, 14, 15, 16, 24, 77, 85, 170, 172, 2, 3, 4, 5, 7, 8, 10, 11, 12, 13, 17, 18,
-        #                               21, 26, 28, 30, 31, 41, 42, 43, 44, 46, 47, 49, 50, 51, 52, 53, 54, 58, 60,
-        #                               61, 62, 63])
-
-        def transform(lab):
-            segmentation_labels = np.array(opts.segmentation_labels)
-            return np.where(segmentation_labels == lab)[0][0] if (lab in segmentation_labels) else 0
-
-        trans = np.vectorize(transform)
-        y_train = trans(y_train)
-        print("converted segs " + str(np.unique(y_train)))
-        print("after y type=" + str(type(y_train)))
-        print("after y shape=" + str(y_train.shape))
-
-        # TODO: the segmentations have the following problems:
-        #  (1) Segmentation classes must be from 0-numClasses (solved by converting to the index on segmentation_labels,
-        #  which is added as a param for merge_train)
-        #  (2) The segmentations contains labels that should be merged. This could be converted before evaluating
-        #  (partially solved).
-        #  (3) Some labels present in the GT are not in segmentation_labels (solved by resetting them to background 0)
-        #  (4) The evaluation assumes that len(segmentation labels)==uniaue(GT_after_resetting), which is often not the case.
-        #  A possible solution is to evaluate only the labels present in both the GT and segmentation_labels
-        #  regardless of whether it is present in the actual segmentations. (are there exceptions?)
-        #  A better solution may be to create an evaluation_labels param.
+        # print("previous y type="+str(type(y_train)))
+        # print("previous y shape=" + str(y_train.shape))
+        # # generation_labels = np.array([0, 14, 15, 16, 24, 77, 85, 170, 172, 2, 3, 4, 5, 7, 8, 10, 11, 12, 13, 17, 18,
+        # #                               21, 26, 28, 30, 31, 41, 42, 43, 44, 46, 47, 49, 50, 51, 52, 53, 54, 58, 60,
+        # #                               61, 62, 63])
+        #
+        # def transform(lab):
+        #     segmentation_labels = np.array(opts.segmentation_labels)
+        #     return np.where(segmentation_labels == lab)[0][0] if (lab in segmentation_labels) else 0
+        #
+        # trans = np.vectorize(transform)
+        # y_train = trans(y_train)
+        # #
+        #
+        # print("converted segs " + str(np.unique(y_train)))
+        # print("after y type=" + str(type(y_train)))
+        # print("after y shape=" + str(y_train.shape))
+        #
+        # #  the segmentations have the following problems:
+        # #  (1) Segmentation classes must be from 0-numClasses (solved by converting to the index on segmentation_labels,
+        # #  which is added as a param for merge_train)
+        # #  (2) The segmentations contains labels that should be merged. This could be converted before evaluating
+        # #  (partially solved).
+        # #  (3) Some labels present in the GT are not in segmentation_labels (solved by resetting them to background 0)
+        # #  (4) The evaluation assumes that len(segmentation labels)==uniaue(GT_after_resetting), which is often not the case.
+        # #  A possible solution is to evaluate only the labels present in both the GT and segmentation_labels
+        # #  regardless of whether it is present in the actual segmentations. (are there exceptions?)
+        # #  A better solution may be to create an evaluation_labels param.
+        # # Above all solved
         #
         ######################################ziyao modified labels to np arange here##############################
 
 
-        print(np.sum(x_train))
-        print("!!!!!!!!!!!!!!")
+        # print(np.sum(x_train))
+        # print("!!!!!!!!!!!!!!")
+
+        # add patch example to tensorflow board
+        MRI_exp = numpy_to_var(x_train[1 * batch_size:1 * batch_size + batch_size, :, :, :, :])
+        print(MRI_exp[0,:,13,:,:].shape)
+        writer.add_image("training patch", MRI_exp[0,1,13:17,:,:], dataformats='CHW')
+        writer.close()
+
+        if addgraph:
+            writer.add_graph(hdNet, MRI_exp)
+            writer.close()
+            addgraph = False
+
         for b_i in range(numBatches):
             optimizer.zero_grad()
             hdNet.zero_grad()
@@ -340,7 +368,6 @@ def runTraining(opts):
             Segmentation = numpy_to_var(y_train[b_i*batch_size:b_i*batch_size+batch_size,:,:,:])
 
             segmentation_prediction = hdNet(MRIs)
-
             # print("shape of posterior??="+str(segmentation_prediction.shape))
             # print("number of classes="+str(num_classes))
             # print("the previous prediction is: " + str(segmentation_prediction[0, 15, 6:8, 6:8, 6:8]))
@@ -357,8 +384,9 @@ def runTraining(opts):
             segmentation_prediction = segmentation_prediction.view(segmentation_prediction.numel() // num_classes, num_classes)
             
             CE_loss_batch = CE_loss(segmentation_prediction, Segmentation.view(-1).type(torch.cuda.LongTensor))
-            
-            loss = CE_loss_batch # TODO: log this (maybe) and visualize
+
+
+            loss = CE_loss_batch # log this (maybe) and visualize: Done
             loss.backward()
             
             optimizer.step()
@@ -366,7 +394,11 @@ def runTraining(opts):
 
             # print("!!!!!!!!!!!the batch loss is: ")
             # print(CE_loss_batch.cpu().data.numpy())
-            saveLoss.append(CE_loss_batch.cpu().data.numpy())
+            # save batch loss
+            batchloss = CE_loss_batch.cpu().data.numpy()
+            saveLoss.append(batchloss)
+            # writer.add_scalar('Batch loss', batchloss, e_i*numBatches+b_i) # TODO: too many points crashes the file transfer
+            # writer.close()
 
             printProgressBar(b_i + 1, numBatches,
                              prefix="[Training] Epoch: {} ".format(e_i),
@@ -408,8 +440,10 @@ def runTraining(opts):
                 
             torch.save(hdNet, os.path.join(model_name, "Best2_" + model_name + ".pkl"))
 
-        np.save(file='/home/ziyaos/SSG_HDN/dup/HyperDenseNet_pytorch/batchlosses_10x_refresh.npy',
+        np.save(file='/home/ziyaos/SSG_HDN/HyperDenseNet_pytorch/batchlosses_at9.npy',
                 arr=saveLoss)  # save the loss for each batch
+        writer.add_scalar('epoch loss', np.mean(saveLoss[-(numBatches):]), e_i)
+        writer.close()
 
         # if (100+e_i%20)==0: # what does this mean? This will never be triggered. Changed to the code below
         if (e_i % 20 == 0) and (e_i != 0):
